@@ -1,0 +1,1 @@
+"""MiniGPT personal AI workbench."""
