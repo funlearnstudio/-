@@ -6,6 +6,9 @@
 
 Mac 終端機執行：
 
+
+
+
 ```bash
 ollama list
 ```
