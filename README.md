@@ -1,107 +1,138 @@
-# MiniGPT · Vercel 版
+# MiniGPT — 自己的 Qwen / Ollama + Vercel
 
-從 MiniGPT v0.4 改寫的雲端版本。Python 3.12 + FastAPI + 原生 HTML/CSS/JavaScript，不需要 Gradio、Rust、PyTorch、tokenizers 或本機模型。這是可部署的原始碼；尚未替你建立 Vercel 專案或實際上線。
+回答由你 Mac 上已下載的 Ollama 模型生成。這份程式沒有 OpenAI API、ChatGPT 或其他雲端聊天模型呼叫。Vercel 只負責網頁與轉送；Mac、Ollama、橋接服務與 tunnel 都要保持開啟。模型權重留在 Mac，不必上传 GitHub。
 
-## 部署至 Vercel
+## 1. 確認你的模型
 
-1. 解壓縮 `MiniGPT-vercel.zip`。
-2. 建立 GitHub repository，把 **MiniGPT-vercel 資料夾內的檔案**上傳到 repository 根目錄（要包含 `.python-version`、`.gitignore` 和 `vercel.json`）。不要上傳 `.env` 或 `.venv`。
-3. Vercel → Add New → Project → Import 該 repository。
-4. Framework Preset 選 **FastAPI**（通常自動辨識）。如果 repository 外面還包了一層 `MiniGPT-vercel`，Root Directory 設成該資料夾。
-5. Build Command、Output Directory、Install Command 保持預設，不要設定 `npm run build`，也不要填 `public` 為輸出目錄。
-6. Environment Variables 加入下表。正式部署使用 Production；預覽測試也需要勾選 Preview。
-7. 按 Deploy。完成後開網址 → 設定 → 輸入你設定的存取密碼 → 保存並測試連線。
-8. 後續修改環境變數，必須重新部署才會套用。
-
-| 環境變數 | 值 / 用途 |
-| --- | --- |
-| `OPENAI_API_KEY` | 必填，模型服務的 API 金鑰，僅由後端使用 |
-| `MINIGPT_ACCESS_TOKEN` | 必填，自己設定的長隨機密碼，用於網站 API 驗證 |
-| `OPENAI_BASE_URL` | 預設 `https://api.openai.com/v1`；可使用支援 Chat Completions SSE 的 HTTPS API |
-| `OPENAI_MODEL` | 預設 `gpt-4o-mini`；依你的 API 服務填寫模型 ID |
-| `BRAVE_API_KEY` | 選填，Brave Search 金鑰；設定後可啟用網路搜尋 |
-
-ChatGPT 訂閱與模型 API 是不同服務；此網站需要 API 金鑰。模型使用費由供應商計算。不可填 `localhost`、`127.0.0.1` 或你 Mac 的本機 Ollama 位址；Vercel 會連到雲端服務。不要把金鑰放進 index.html 或提交到 GitHub。
-
-存取密碼只存於瀏覽器 sessionStorage，關閉分頁後通常會清除。這是個人共用密碼模式；所有知道密碼的人都能使用後端模型額度，沒有多人帳號與每人限額。若要讓多人長期使用，請先加上正式登入及持久化限流。
-
-### CLI 部署（可選）
-
-在專案資料夾執行：
+Mac 終端機執行：
 
 ```bash
-npx vercel@latest
+ollama list
 ```
 
-完成連結後，在 Vercel 專案設定加入上表環境變數，再執行：
+記下 NAME 欄的完整名稱。本文以 `qwen2.5:0.5b` 示範；請換成你已下載的名稱，例如 `qwen2.5:7b`。不會自動下載或替換模型。
+
+先執行：
 
 ```bash
-npx vercel@latest --prod
+ollama run qwen2.5:0.5b
 ```
 
-## Mac 本機安裝與啟動
+回答正常後輸入 `/bye` 離開聊天。若顯示無法連線，先開啟 Ollama App；或在另一個終端機執行 `ollama serve`。已在執行時不必再啟動第二個服務。
 
-請先安裝 Python 3.12。假設解壓縮的資料夾放在桌面：
+## 2. 啟動 Mac 橋接服務
+
+解壓縮到桌面，執行：
 
 ```bash
-cd ~/Desktop/MiniGPT-vercel
+cd ~/Desktop/MiniGPT-ollama-vercel/mac-gateway
 python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 cp .env.example .env
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
 ```
 
-使用文字編輯器修改 `.env`，填入 `OPENAI_API_KEY` 與 `MINIGPT_ACCESS_TOKEN`，再執行：
+最後一行會生成隨機密碼。用文字編輯器打開 `mac-gateway/.env`，填入：
+
+```dotenv
+OLLAMA_GATEWAY_TOKEN=剛才產生的隨機密碼
+OLLAMA_MODEL=qwen2.5:0.5b
+```
+
+模型名稱必須等於 `ollama list` 中你要用的名稱。啟動：
 
 ```bash
-python -m uvicorn app:app --host 127.0.0.1 --port 8000
+python -m uvicorn gateway:app --host 127.0.0.1 --port 8001
 ```
 
-瀏覽器開啟 `http://127.0.0.1:8000`，到設定輸入 `.env` 中的存取密碼。停止服務按 Ctrl+C。下次啟動只需：
+這個終端機保持開啟。橋接只提供有密碼保護的 `/api/chat`，不提供下載、刪除或管理模型的介面。不要直接公開 Ollama 的 11434 連接埠。
+
+## 3. 建立外部連線
+
+如果已安裝 Homebrew，可安裝 Cloudflare tunnel：
 
 ```bash
-cd ~/Desktop/MiniGPT-vercel
-source .venv/bin/activate
-python -m uvicorn app:app --host 127.0.0.1 --port 8000
+brew install cloudflared
 ```
 
-## 功能對照
+測試用：另開終端機執行
 
-| 功能 | Vercel 版 |
+```bash
+cloudflared tunnel --url http://127.0.0.1:8001
+```
+
+記下輸出的 `https://…trycloudflare.com` 網址，填入下一步的 `OLLAMA_GATEWAY_URL`。不要加 `/api/chat`。不能使用 localhost 或 Mac 的區域網路 IP 作為 Vercel 連線位址。
+
+Quick Tunnel 是暫時測試服務，重啟可能換網址，也沒有上線保證。它不支援 SSE；Mac 橋接這段使用 Ollama 原生 NDJSON，Vercel 到瀏覽器才轉成 SSE。若 tunnel 中間層緩衝回應，可能會一次收到整段答案。正式使用建議在 Cloudflare 建立固定 Tunnel，把自有網域如 `minigpt-api.stevexlab.com` 對應到 `http://127.0.0.1:8001`。不使用 Quick Tunnel 的互動式 email 驗證，因為 Vercel 後端不能完成瀏覽器登入；此程式以橋接 token 驗證。
+
+## 4. 部署 Vercel
+
+1. 建立 GitHub repository，上傳這個資料夾內的內容至 repository 根目錄，包含隱藏的 `.python-version`、`.gitignore`、`.vercelignore`。不要上傳 `.env`、`.venv` 或模型權重。
+2. Vercel → Add New → Project → 匯入 repository。
+3. Framework 選 FastAPI，Root Directory 選包含 app.py 的資料夾。Build / Install / Output 保持預設。
+4. 加入下面環境變數（Production；預覽部署也需 Preview）。
+
+| 名稱 | 值 |
 | --- | --- |
-| 聊天、一般 / 學習 / 程式 / 數學 / 研究 / 創作模式 | 支援，雲端 API 串流 |
-| 停止、重新生成 | 支援；停止會中止瀏覽器連線，不保證供應商立即停止計費 |
-| 對話列表、刪除、JSON 匯入 / 匯出 | 支援，瀏覽器 localStorage；不會跨裝置自動同步 |
-| 個人記憶 | 支援，本機瀏覽器保存，聊天時傳送 |
-| 文字 / 程式檔附加 | 支援，總訊息最多 12,000 字元 |
-| 算式、方程式、微積分、矩陣、統計 | 使用原版 SymPy 白名單工具，單次 5 秒上限 |
-| 網路搜尋與來源 | 支援 Brave Search 摘要，需金鑰；未讀取網頁全文 |
-| 原版 SQLite 對話 | 可先在原版匯出單一對話 JSON，再在雲端版匯入；不直接上傳資料庫 |
-| LoRA / MLX / 本機模型 / 背景訓練 | 保留於原本本機版本，未移植到這個部署包 |
-| 圖片生成 / 編輯 / 去背、語音、OCR、資料分析、RAG | 未移植到這個部署包，使用原本本機版本 |
-| 原版校對、收藏分類、訊息分支 | 未移植到這個部署包 |
+| `OLLAMA_GATEWAY_URL` | 第 3 步得到的 HTTPS 網址，沒有 `/api/chat` |
+| `OLLAMA_GATEWAY_TOKEN` | 與 Mac `.env` 的橋接密碼完全相同 |
+| `OLLAMA_MODEL` | 與 Mac `.env`、ollama list 完全相同的模型名稱 |
+| `MINIGPT_ACCESS_TOKEN` | 另外設定一組長隨機密碼，作為網站登入密碼 |
+| `BRAVE_API_KEY` | 選填；只有勾選網路搜尋才會呼叫 Brave，與聊天模型無關 |
 
-全部歷史仍保存在瀏覽器；每次只送最近最多 40 則、24,000 字元的連續上下文給模型。單則使用者訊息最多 12,000 字元，個人記憶最多 3,000 字元。這版取消原版超長自動續寫，單次輸出最多 2,048 tokens；後端生成總時間最多 50 秒，Vercel 函式設 60 秒。需更長回答時送出「請繼續」。此設定避免一般請求持續過久。
+5. Deploy，開網站 →「設定」→ 輸入 `MINIGPT_ACCESS_TOKEN` →「保存並測試連線」。這個按鈕確認 Vercel 設定；第一次發送聊天才會實際測試 Mac 的模型。
+6. 更改任何環境變數後重新部署。Quick Tunnel 網址換掉也需要更新與重新部署。
 
-## 常見問題
+## 下次啟動
 
-- **503 / 請設定存取密碼**：缺少 `MINIGPT_ACCESS_TOKEN`，加入後重新部署。
-- **401 / 存取密碼錯誤**：網站設定填入的值須等於 `MINIGPT_ACCESS_TOKEN`，不是模型 API 金鑰。
-- **模型服務 HTTP 401 / 403**：確認 API 金鑰與服務位址。
-- **HTTP 400 / 404**：檢查模型 ID、是否支援 `/chat/completions`、是否允許 `max_tokens` 與串流。
-- **HTTP 429**：供應商額度或速率限制，請檢查 API 帳戶。
-- **部署 404**：Root Directory 必須包含 app.py 和 requirements.txt；Framework Preset 使用 FastAPI。
-- **對話消失**：清除瀏覽器資料或切換瀏覽器 / 網域會使本機歷史無法讀取；請定期匯出。
-- **本機 Python 3.14 安裝問題**：使用 `python3.12` 建立新的 .venv，不要沿用舊版的環境。
+開啟 Ollama App，另開終端機：
 
-## 驗證
+```bash
+cd ~/Desktop/MiniGPT-ollama-vercel/mac-gateway
+source .venv/bin/activate
+python -m uvicorn gateway:app --host 127.0.0.1 --port 8001
+```
 
-`tests/check.py` 用模擬模型串流驗證 API，沒有呼叫付費模型；另包含真實 SymPy 工具測試。可執行 `python tests/check.py`。前端語法也經 Node 檢查。雲端 API 實際連線與 Vercel 上線需你填入環境變數後驗證。
+再開 tunnel。固定 Tunnel 使用其設定的啟動方式；Quick Tunnel 用第 3 步命令，網址更改須更新 Vercel。Mac 休眠／關機或任一服務停止，網站聊天就會無法生成；對話仍留在瀏覽器。
 
-## 部署依據
+## 本機測試網頁（選用）
 
-- https://vercel.com/docs/frameworks/backend/fastapi
-- https://vercel.com/docs/functions/runtimes/python
-- https://vercel.com/docs/functions/limitations
+根目錄建立自己的 `.env`，依 `.env.example` 填入 HTTPS tunnel、兩種密碼與模型名稱，再執行：
 
-使用 Vercel 官方支援的根目錄 app.py / app 入口與 maxDuration 設定。此包不向伺服器磁碟寫入歷史或設定，不需要常駐背景工作。
+```bash
+cd ~/Desktop/MiniGPT-ollama-vercel
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
+```
+
+打開 http://127.0.0.1:8000。
+
+## 功能與限制
+
+- 聊天串流、六種助理模式、停止與重新生成、個人記憶、文字檔附加、對話 JSON 匯入匯出、SymPy 數學工具與可選 Brave 搜尋。
+- 對話保存在瀏覽器 localStorage，不會自動跨裝置同步；可匯入原版本單一對話 JSON。
+- 每次最多送 40 則／24,000 字元歷史；Ollama 使用 8,192 tokens 上下文，超出模型有效容量時可能截短。回答最多 2,048 tokens，Vercel 生成總時間上限 50 秒。
+- 第一次載入較大模型可能逾時。可先在 Mac 用 `ollama run 模型名稱` 問一句話預熱，再使用網站。長回答可送出「請繼續」。
+- 這個部署包未移植原版 LoRA 訓練、圖片／語音／OCR／RAG／資料分析；原版本仍可在 Mac 使用。這版使用原先下載的模型，沒有聲稱載入你的 LoRA 權重。
+- 個人密碼模式，沒有多人帳號、跨裝置資料庫或每人用量限制。不要分享兩組密碼。
+- 「停止」會關閉瀏覽器請求；中間代理與 Ollama 可能延遲結束運算。
+
+## 問題排查
+
+- 網站 401：檢查 `MINIGPT_ACCESS_TOKEN`。
+- 模型服務 401：Mac 與 Vercel 的 `OLLAMA_GATEWAY_TOKEN` 不相同。
+- 模型服務 400：兩側 `OLLAMA_MODEL` 不一致。
+- Ollama 回報錯誤：Mac 上執行 `ollama list`，確認模型已下載且服務開啟；模型不存在通常回報 404。
+- 無法連接模型：檢查 tunnel 網址、橋接终端機、Ollama 與 Mac 睡眠狀態。
+- 生成逾時：預熱模型、缩短問題、使用你已下載且適合 Mac 記憶體的較小模型。
+
+## 驗證與來源
+
+`python tests/check.py` 使用模擬 Ollama NDJSON，驗證串流轉換、權限、錯誤處理與真實 SymPy 計算。未在你的 Mac 上測試模型，也未替你實際部署到 Vercel。
+
+- Ollama API: https://docs.ollama.com/api/chat
+- Vercel FastAPI: https://vercel.com/docs/frameworks/backend/fastapi
+- Cloudflare Quick Tunnel: https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/

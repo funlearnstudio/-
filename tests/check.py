@@ -15,21 +15,21 @@ class Upstream:
     async def __aexit__(self, *args): pass
     async def aiter_lines(self):
         for word in ['你好', '，MiniGPT']:
-            yield 'data: ' + json.dumps({'choices':[{'delta':{'content':word}}]})
-        yield 'data: [DONE]'
+            yield json.dumps({'message':{'content':word},'done':False})
+        yield json.dumps({'done':True})
 
 class MockClient:
     def __init__(self, **kwargs): pass
     async def __aenter__(self): return self
     async def __aexit__(self, *args): pass
     def stream(self, method, url, **kwargs):
-        assert url == 'https://api.openai.com/v1/chat/completions'
+        assert url == 'https://my-gateway.example/api/chat'
         assert kwargs['headers']['Authorization'] == 'Bearer test-api-key'
         assert kwargs['json']['messages'][0]['role'] == 'system'
         return Upstream()
 
 def main():
-    with patch.dict(os.environ, {'MINIGPT_ACCESS_TOKEN':'test-pass','OPENAI_API_KEY':'test-api-key', 'OPENAI_BASE_URL':'https://api.openai.com/v1'}, clear=True):
+    with patch.dict(os.environ, {'MINIGPT_ACCESS_TOKEN':'test-pass','OLLAMA_GATEWAY_TOKEN':'test-api-key', 'OLLAMA_GATEWAY_URL':'https://my-gateway.example'}, clear=True):
         client=TestClient(module.app)
         auth={'Authorization':'Bearer test-pass'}
         assert client.get('/').status_code == 200
@@ -56,7 +56,7 @@ def main():
         assert '-2' in r.json()['exact'] and all(v['verified'] for v in r.json()['verification'])
         r=client.post('/api/math',headers=auth,json={'expression':'__import__("os")','operation':'calculate'})
         assert r.status_code==400,r.text
-        os.environ.pop('OPENAI_API_KEY')
+        os.environ.pop('OLLAMA_GATEWAY_TOKEN')
         assert client.post('/api/chat',headers=auth,json=body).status_code==503
         os.environ.pop('MINIGPT_ACCESS_TOKEN')
         assert client.get('/api/settings',headers=auth).status_code==503
